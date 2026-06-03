@@ -1,0 +1,18 @@
+{
+  "version": "1.0.0",
+  "enabled": true,
+  "name": "Update all applications after shared modification",
+  "when": {
+    "type": "fileEdited",
+    "patterns": [
+      "/home/ubuntu/ai-swautomorph--shared/*_context.md",
+      "/home/ubuntu/ai-swautomorph--shared/CLEAN_DATABASE_context.md"
+    ]
+  },
+  "then": {
+    "type": "runCommand",
+    "command": "~/update_swautomorph_submodules.sh"
+  },
+  "workspaceFolderName": "ai-swautomorph--shared",
+  "shortName": "update-all-applications-after-shared-modification"
+}
