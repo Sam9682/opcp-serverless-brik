@@ -1,0 +1,6 @@
+.git
+.kiro
+.dockerignore
+Dockerfile
+*.md
+test/
