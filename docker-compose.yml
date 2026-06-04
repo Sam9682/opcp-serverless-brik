@@ -3,23 +3,17 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: opcp-serverless-brik-app-${USER_ID:-0}-${HTTP_PORT:-5000}
+    container_name: opcp-serverless-brik-app-${USER_ID:-0}-${HTTP_PORT:-8080}
     ports:
-      - "${HTTP_PORT:-5000}:5000"
+      - "${HTTP_PORT:-8080}:8080"
     environment:
-      - FLASK_ENV=production
-      - SECRET_KEY=${SECRET_KEY:-change-this-in-production}
-      - USER_ID=${USER_ID:-1}
-      - USER_NAME=${USER_NAME:-User}
-      - USER_EMAIL=${USER_EMAIL:-user@example.com}
-      - DESCRIPTION=${DESCRIPTION:-OpenStack Automation}
       - RUNTIME=docker
       - RUNTIME_SOCKET=/var/run/docker.sock
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:rw
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 30s
       timeout: 10s
       retries: 3
