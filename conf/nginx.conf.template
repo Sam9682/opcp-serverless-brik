@@ -7,7 +7,7 @@ http {
     default_type application/octet-stream;
 
     upstream app {
-        server app:5000;
+        server app:8080;
     }
 
     server {
@@ -22,13 +22,15 @@ http {
         root /var/www/html;
         index index.html;
 
-        # Proxy API and app routes to Flask
-        location /api/ {
+        # Proxy API routes to worker
+        location /jobs {
             proxy_pass http://app;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
             proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_buffering off;
+            proxy_cache off;
         }
 
         location /health {
@@ -36,20 +38,15 @@ http {
             proxy_set_header Host $host;
         }
 
-        location /admin {
+        location /ready {
             proxy_pass http://app;
             proxy_set_header Host $host;
-            proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-            proxy_set_header X-Forwarded-Proto $scheme;
         }
 
-        location /billing {
-            proxy_pass http://app;
-            proxy_set_header Host $host;
-            proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-            proxy_set_header X-Forwarded-Proto $scheme;
+        # Serve README.md with correct MIME type
+        location = /README.md {
+            default_type text/markdown;
+            try_files /README.md =404;
         }
 
         # Serve static files directly
