@@ -43,14 +43,11 @@ http {
             proxy_set_header Host $host;
         }
 
-        # Serve README.md with correct MIME type
-        location = /README.md {
-            default_type text/markdown;
-            try_files /README.md =404;
-        }
-
         # Serve static files directly
         location / {
+            types {
+                text/plain md;
+            }
             try_files $uri $uri/ /index.html;
         }
 
