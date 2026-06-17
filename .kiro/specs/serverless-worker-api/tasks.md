@@ -243,10 +243,10 @@ Implement a lightweight Go HTTP service that executes containerized workloads vi
     - Start HTTP server, handle OS signals (SIGTERM, SIGINT) for graceful shutdown
     - _Requirements: 6.4, 6.5, 10.3_
 
-- [~] 12. Checkpoint - Ensure full application compiles and unit/property tests pass
+- [x] 12. Checkpoint - Ensure full application compiles and unit/property tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 13. Integration tests and container image
+- [x] 13. Integration tests and container image
   - [ ]* 13.1 Write integration tests for full job lifecycle
     - Create `test/integration/job_test.go` (build tag `integration`)
     - Test happy path: submit `alpine` job with `echo hello`, poll result, verify stdout/status
@@ -258,7 +258,7 @@ Implement a lightweight Go HTTP service that executes containerized workloads vi
     - Test image not found: reference non-existent image, verify error result
     - _Requirements: 1.1, 2.8, 3.2, 3.3, 4.1, 5.5, 8.1, 8.2, 9.2_
 
-  - [~] 13.2 Create Dockerfile for worker image
+  - [x] 13.2 Create Dockerfile for worker image
     - Create multi-stage `Dockerfile`: builder stage (golang:1.22-alpine) compiles static binary with CGO_DISABLED=1
     - Final stage uses `gcr.io/distroless/static-debian12` or `scratch`
     - Copy binary, set non-root USER, expose port 8080
@@ -272,7 +272,7 @@ Implement a lightweight Go HTTP service that executes containerized workloads vi
     - Test image size: verify compressed Docker image ≤ 50 MB
     - _Requirements: 10.1, 10.2, 10.3, 10.4_
 
-- [~] 14. Final checkpoint - Ensure all tests pass
+- [x] 14. Final checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
 ## Notes

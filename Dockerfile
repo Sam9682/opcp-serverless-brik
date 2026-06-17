@@ -1,8 +1,6 @@
 # Stage 1: Build static binary
 FROM golang:1.25-alpine AS builder
 
-ENV GOTOOLCHAIN=local
-
 WORKDIR /src
 
 # Cache dependencies
@@ -11,10 +9,16 @@ RUN go mod download
 
 # Copy source and build static binary
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /worker ./cmd/worker/
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+    -ldflags="-s -w" \
+    -o /worker \
+    ./cmd/worker/
 
-# Stage 2: Minimal runtime image
-FROM gcr.io/distroless/static-debian12
+# Stage 2: Minimal runtime image with shell access
+FROM alpine:3.20
+
+# Install ca-certificates for HTTPS and create non-root user
+RUN apk --no-cache add ca-certificates
 
 COPY --from=builder /worker /worker
 
