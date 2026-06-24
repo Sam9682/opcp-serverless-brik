@@ -5,7 +5,7 @@ services:
       dockerfile: Dockerfile
     container_name: opcp-serverless-brik-app-${USER_ID:-0}-${HTTP_PORT:-8080}
     ports:
-      - "${HTTP_PORT:-8080}:8080"
+      - "${HTTP_PORT:-5000}:5000"
     environment:
       - RUNTIME=docker
       - RUNTIME_SOCKET=/var/run/docker.sock
@@ -13,7 +13,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:rw
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:${HTTP_PORT:-5000}/health"]
       interval: 30s
       timeout: 10s
       retries: 3
