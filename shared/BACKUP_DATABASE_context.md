@@ -9,15 +9,15 @@ IMPORTANT :
 
 **Execute these steps:**
 
-#### 1. Check Prerequisites, docker, docker-compose, and s3cmd have to be installed on the current server. You can use the following commands:
+#### 1. Check Prerequisites, docker, docker-compose, and aws cli (aws s3) have to be installed on the current server. You can use the following commands:
 
 command -v docker || exit 1
 command -v docker-compose || exit 1
-command -v s3cmd || exit 1
+command -v aws || exit 1
 
 #### 2. Retrieve Database Configuration from docker-compose.yaml. Extract PostgreSQL connection details:
 
-source ./conf/deploy.ini
+source {{APPLICATION_FOLDER}}/conf/deploy.ini
 if ! [[ "$USER_ID" =~ ^[0-9]+$ ]]; then
     USER_ID=0
 fi
@@ -56,10 +56,10 @@ fi
 
 #### 6. Upload Backup to OVH S3:
 
-S3_BUCKET="your-bucket-name"
+S3_BUCKET="{{S3_BUCKET}}"
 S3_PATH="s3://${S3_BUCKET}/${NAME_OF_APPLICATION}/${SERVER_IP}/backups/"
 
-s3cmd put $BACKUP_FILE $S3_PATH --acl-private
+aws s3 cp $BACKUP_FILE $S3_PATH --acl private
 
 # Verify upload was successful
 if [ $? -eq 0 ]; then

@@ -85,7 +85,7 @@ docker-compose build --no-cache --build-arg PIP_UPGRADE=1
 
 ```bash
 # Load and verify configuration
-source ./conf/deploy.ini
+source {{APPLICATION_FOLDER}}/conf/deploy.ini
 echo "App: $NAME_OF_APPLICATION, Ports: $RANGE_START"
 
 # Test nginx config generation

@@ -87,7 +87,7 @@ Follow these steps EXACTLY:
 #### 5. Check docker-compose.yml compliance
    Verify that docker-compose.yml includes:
    - Proper service definitions
-   - Port mappings using ${HTTP_PORT}, ${HTTPS_PORT}, ${HTTP_PORT2}, ${HTTPS_PORT2}
+   - Port mappings using ${HTTP_PORT1}, ${HTTPS_PORT1}, ${HTTP_PORT2}, ${HTTPS_PORT2}, ${HTTP_PORT3}, ${HTTPS_PORT3}, ${HTTP_PORT4}, ${HTTPS_PORT4}, ${HTTP_PORT5}, ${HTTPS_PORT5}, ${HTTP_PORT}, ${HTTPS_PORT}
    - Volume configurations
    - Network configurations
    - Environment variable handling

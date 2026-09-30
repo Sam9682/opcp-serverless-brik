@@ -10,15 +10,15 @@ IMPORTANT :
 
 **Execute these steps:**
 
-#### 1. Check Prerequisites, docker, docker-compose, and s3cmd have to be installed on the current server. You can use the following commands:
+#### 1. Check Prerequisites, docker, docker-compose, and aws cli (aws s3) have to be installed on the current server. You can use the following commands:
 
 command -v docker || exit 1
 command -v docker-compose || exit 1
-command -v s3cmd || exit 1
+command -v aws || exit 1
 
 #### 2. Retrieve Database Configuration from docker-compose.yaml. Extract PostgreSQL connection details:
 
-source ./conf/deploy.ini
+source {{APPLICATION_FOLDER}}/conf/deploy.ini
 if ! [[ "$USER_ID" =~ ^[0-9]+$ ]]; then
     USER_ID=0
 fi
@@ -40,11 +40,11 @@ SERVER_IP=$(curl -s -4 ifconfig.me || hostname -I | awk '{print $1}')
 
 #### 4. List Available Backups from OVH S3:
 
-S3_BUCKET="your-bucket-name"
+S3_BUCKET="{{S3_BUCKET}}"
 S3_PATH="s3://${S3_BUCKET}/${NAME_OF_APPLICATION}/${SERVER_IP}/backups/"
 
 echo "Available backups:"
-s3cmd ls $S3_PATH
+aws s3 ls $S3_PATH
 
 #### 5. Download Backup File from S3:
 
@@ -52,13 +52,16 @@ RESTORE_DIR="./restore"
 mkdir -p $RESTORE_DIR
 
 # If BACKUP_FILE is not specified, get the latest backup
+# Note: `aws s3 ls` prints only the object key in the last column, so
+# reconstruct the full s3:// URI before downloading.
 if [ -z "$BACKUP_FILE" ]; then
-    BACKUP_FILE=$(s3cmd ls $S3_PATH | sort | tail -n 1 | awk '{print $4}')
+    LATEST_KEY=$(aws s3 ls $S3_PATH | sort | tail -n 1 | awk '{print $4}')
+    BACKUP_FILE="${S3_PATH}${LATEST_KEY}"
     echo "No backup file specified, using latest: $BACKUP_FILE"
 fi
 
 LOCAL_BACKUP_FILE="${RESTORE_DIR}/$(basename $BACKUP_FILE)"
-s3cmd get $BACKUP_FILE $LOCAL_BACKUP_FILE
+aws s3 cp $BACKUP_FILE $LOCAL_BACKUP_FILE
 
 # Verify download was successful
 if [ ! -f "$LOCAL_BACKUP_FILE" ]; then
@@ -68,7 +71,27 @@ fi
 
 #### 6. Stop Application Services (to prevent database conflicts):
 
-HTTP_PORT=$HTTP_PORT HTTPS_PORT=$HTTPS_PORT HTTP_PORT2=$HTTP_PORT2 HTTPS_PORT2=$HTTPS_PORT2 USER_ID=$USER_ID docker-compose -p "$NAME_OF_APPLICATION-$USER_ID-$HTTPS_PORT" -f docker-compose.yml --env-file .env.prod stop
+RANGE_START=${RANGE_START:-6000}
+RANGE_RESERVED=${RANGE_RESERVED:-100}
+RANGE_PORTS_PER_APPLICATION=${RANGE_PORTS_PER_APPLICATION:-12}
+PORT_NAMES=(
+    HTTPS_PORT HTTP_PORT
+    HTTPS_PORT1 HTTP_PORT1
+    HTTPS_PORT2 HTTP_PORT2
+    HTTPS_PORT3 HTTP_PORT3
+    HTTPS_PORT4 HTTP_PORT4
+    HTTPS_PORT5 HTTP_PORT5
+)
+PORT_RANGE_BEGIN=$((RANGE_START + USER_ID * RANGE_RESERVED))
+base=$((PORT_RANGE_BEGIN + APPLICATION_IDENTITY_NUMBER * RANGE_PORTS_PER_APPLICATION))
+offset=0
+for name in "${PORT_NAMES[@]}"; do
+    printf -v "$name" '%s' "$((base + offset))"
+    export "$name"
+    offset=$((offset + 1))
+done
+
+HTTPS_PORT=$HTTPS_PORT HTTP_PORT=$HTTP_PORT HTTPS_PORT1=$HTTPS_PORT1 HTTP_PORT1=$HTTP_PORT1 HTTPS_PORT2=$HTTPS_PORT2 HTTP_PORT2=$HTTP_PORT2 HTTPS_PORT3=$HTTPS_PORT3 HTTP_PORT3=$HTTP_PORT3 HTTPS_PORT4=$HTTPS_PORT4 HTTP_PORT4=$HTTP_PORT4 HTTPS_PORT5=$HTTPS_PORT5 HTTP_PORT5=$HTTP_PORT5 USER_ID=$USER_ID docker-compose -p "$NAME_OF_APPLICATION-$USER_ID-$HTTPS_PORT" -f docker-compose.yml --env-file .env.prod stop
 
 #### 7. Create Backup of Current Database (safety measure):
 
@@ -97,7 +120,7 @@ fi
 
 #### 10. Restart Application Services:
 
-HTTP_PORT=$HTTP_PORT HTTPS_PORT=$HTTPS_PORT HTTP_PORT2=$HTTP_PORT2 HTTPS_PORT2=$HTTPS_PORT2 USER_ID=$USER_ID docker-compose -p "$NAME_OF_APPLICATION-$USER_ID-$HTTPS_PORT" -f docker-compose.yml --env-file .env.prod up -d
+HTTPS_PORT=$HTTPS_PORT HTTP_PORT=$HTTP_PORT HTTPS_PORT1=$HTTPS_PORT1 HTTP_PORT1=$HTTP_PORT1 HTTPS_PORT2=$HTTPS_PORT2 HTTP_PORT2=$HTTP_PORT2 HTTPS_PORT3=$HTTPS_PORT3 HTTP_PORT3=$HTTP_PORT3 HTTPS_PORT4=$HTTPS_PORT4 HTTP_PORT4=$HTTP_PORT4 HTTPS_PORT5=$HTTPS_PORT5 HTTP_PORT5=$HTTP_PORT5 USER_ID=$USER_ID docker-compose -p "$NAME_OF_APPLICATION-$USER_ID-$HTTPS_PORT" -f docker-compose.yml --env-file .env.prod up -d
 
 #### 11. Verify Database Connection:
 

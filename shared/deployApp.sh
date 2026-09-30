@@ -38,7 +38,25 @@ DESCRIPTION=${5:-"Basic Admin User"}
 
 RANGE_START=6000
 RANGE_RESERVED=100
-RANGE_PORTS_PER_APPLICATION=4
+RANGE_PORTS_PER_APPLICATION=12
+
+# Single source of truth for the per-application port set.
+# The order defines the consecutive offset each variable receives from the
+# per-application base (offset 0 = base, offset 1 = base+1, ...). To add or
+# remove a port, edit ONLY this array and RANGE_PORTS_PER_APPLICATION; every
+# consumer (calculate_ports, show_environment, docker-compose env prefix,
+# setup_firewall, check_status) iterates this array.
+# By convention the FIRST entry (offset 0 = base) is HTTPS_PORT, the main web
+# interface of the application; the docker-compose project name and health
+# check are keyed on it.
+PORT_NAMES=(
+    HTTPS_PORT HTTP_PORT
+    HTTPS_PORT1 HTTP_PORT1
+    HTTPS_PORT2 HTTP_PORT2
+    HTTPS_PORT3 HTTP_PORT3
+    HTTPS_PORT4 HTTP_PORT4
+    HTTPS_PORT5 HTTP_PORT5
+)
 
 # Configuration
 DOMAIN=${DOMAIN:-"softfluid.fr"}
@@ -51,12 +69,28 @@ calculate_ports() {
     if ! [[ "$USER_ID" =~ ^[0-9]+$ ]]; then
         USER_ID=0
     fi
-    
+
     PORT_RANGE_BEGIN=$((RANGE_START + USER_ID * RANGE_RESERVED))
-    HTTP_PORT=$((PORT_RANGE_BEGIN + APPLICATION_IDENTITY_NUMBER * RANGE_PORTS_PER_APPLICATION))
-    HTTPS_PORT=$((HTTP_PORT + 1))
-    HTTP_PORT2=$((HTTPS_PORT + 1))
-    HTTPS_PORT2=$((HTTP_PORT2 + 1))
+    local base=$((PORT_RANGE_BEGIN + APPLICATION_IDENTITY_NUMBER * RANGE_PORTS_PER_APPLICATION))
+
+    # Assign each port name a consecutive value from base, in array order.
+    local offset=0
+    local name
+    for name in "${PORT_NAMES[@]}"; do
+        printf -v "$name" '%s' "$((base + offset))"
+        offset=$((offset + 1))
+    done
+}
+
+# Build the "NAME=$NAME ..." environment prefix passed to every docker-compose
+# invocation, covering the full port set plus USER_ID. Emitted on stdout.
+port_env_prefix() {
+    local name out=""
+    for name in "${PORT_NAMES[@]}"; do
+        out+="${name}=${!name} "
+    done
+    out+="USER_ID=${USER_ID}"
+    printf '%s' "$out"
 }
 
 # Display environment variables for operations
@@ -67,10 +101,10 @@ show_environment() {
     echo "  USER_ID=${USER_ID}"
     echo "  USER_NAME=${USER_NAME}"
     echo "  USER_EMAIL=${USER_EMAIL}"
-    echo "  HTTP_PORT=${HTTP_PORT}"
-    echo "  HTTP_PORT2=${HTTP_PORT2}"
-    echo "  HTTPS_PORT=${HTTPS_PORT}"
-    echo "  HTTPS_PORT2=${HTTPS_PORT2}"
+    local name
+    for name in "${PORT_NAMES[@]}"; do
+        echo "  ${name}=${!name}"
+    done
     echo ""
 }
 
@@ -108,7 +142,7 @@ check_prerequisites() {
         exit 1
     fi
     
-    if ! docker compose version &> /dev/null; then
+    if ! command -v docker-compose &> /dev/null; then
         log_error "Docker Compose is not installed. Please install Docker Compose first."
         exit 1
     fi
@@ -128,8 +162,11 @@ generate_secrets() {
         JWT_SECRET=$(openssl rand -base64 32 | tr -d "=+/" | cut -c1-32)
         
         cat > "$ENV_FILE" << EOF
-# Database Configuration (SQLite)
-DATABASE_URL=sqlite:///./data/ai_haccp.db
+# Database Configuration (PostgreSQL)
+POSTGRES_USER=${NAME_OF_APPLICATION}
+POSTGRES_PASSWORD=$DB_PASSWORD
+POSTGRES_DB=${NAME_OF_APPLICATION}
+DATABASE_URL=postgresql://${NAME_OF_APPLICATION}:$DB_PASSWORD@postgres:5432/${NAME_OF_APPLICATION}
 
 # Security
 JWT_SECRET=$JWT_SECRET
@@ -258,17 +295,21 @@ setup_ssl() {
 deploy_services() {
     log_info "Building and deploying services..."
 
+    local env_prefix
+    env_prefix="$(port_env_prefix)"
+    local project="${NAME_OF_APPLICATION}-${USER_ID}-${HTTPS_PORT}"
+
     # Stop existing services
-    HTTP_PORT=$HTTP_PORT HTTPS_PORT=$HTTPS_PORT HTTP_PORT2=$HTTP_PORT2 HTTPS_PORT2=$HTTPS_PORT2 USER_ID=$USER_ID docker compose -p "${NAME_OF_APPLICATION}-${USER_ID}-${HTTPS_PORT}" -f docker-compose.yml down 2>/dev/null || true
-    
+    env $env_prefix docker-compose -p "$project" -f docker-compose.yml down 2>/dev/null || true
+
     # Build images
     log_info "Building Docker images..."
-    HTTP_PORT=$HTTP_PORT HTTPS_PORT=$HTTPS_PORT HTTP_PORT2=$HTTP_PORT2 HTTPS_PORT2=$HTTPS_PORT2 USER_ID=$USER_ID docker compose -p "${NAME_OF_APPLICATION}-${USER_ID}-${HTTPS_PORT}" -f docker-compose.yml build --no-cache --build-arg PIP_UPGRADE=1
-    
+    env $env_prefix docker-compose -p "$project" -f docker-compose.yml build --no-cache --build-arg PIP_UPGRADE=1
+
     # Start services
     log_info "Starting production services..."
-    HTTP_PORT=$HTTP_PORT HTTPS_PORT=$HTTPS_PORT HTTP_PORT2=$HTTP_PORT2 HTTPS_PORT2=$HTTPS_PORT2 USER_ID=$USER_ID docker compose -p "${NAME_OF_APPLICATION}-${USER_ID}-${HTTPS_PORT}" -f docker-compose.yml --env-file "$ENV_FILE" up -d
-    
+    env $env_prefix docker-compose -p "$project" -f docker-compose.yml --env-file "$ENV_FILE" up -d
+
     # Wait for services to be ready
     log_info "Waiting for services to start..."
     sleep 3
@@ -277,7 +318,7 @@ deploy_services() {
     containers=$(docker ps -q --filter "name=${NAME_OF_APPLICATION}-.*-${USER_ID}-.*")
     if [[ -z "$containers" ]]; then
         log_error "Some services failed to start"
-        docker compose -p "${NAME_OF_APPLICATION}-${USER_ID}-${HTTPS_PORT}" -f docker-compose.yml logs
+        docker-compose -p "$project" -f docker-compose.yml logs
     else
         log_info "Services deployed successfully ✅"
     fi
@@ -310,21 +351,15 @@ setup_firewall() {
     log_info "Configuring firewall..."
     
     if command -v ufw &> /dev/null; then
-        # Configure UFW if available
-        sudo ufw allow ${HTTPS_PORT}/tcp
-        # if  ${HTTP_PORT} exist then allow it
-        if [[ -n "${HTTP_PORT}" ]]; then
-            sudo ufw allow ${HTTP_PORT}/tcp
-        fi
-        # if  ${HTTPS_PORT2} exist then allow it
-        if [[ -n "${HTTPS_PORT2}" ]]; then
-            sudo ufw allow ${HTTPS_PORT2}/tcp
-        fi
-        # if  ${HTTP_PORT2} exist then allow it
-        if [[ -n "${HTTP_PORT2}" ]]; then
-            sudo ufw allow ${HTTP_PORT2}/tcp
-        fi
-        
+        # Configure UFW if available: open each non-empty port of the port set
+        local name port
+        for name in "${PORT_NAMES[@]}"; do
+            port="${!name}"
+            if [[ -n "$port" ]]; then
+                sudo ufw allow "${port}/tcp"
+            fi
+        done
+
         log_info "Firewall configured ✅"
     else
         log_warn "UFW not found, skipping firewall configuration"
@@ -336,26 +371,40 @@ create_backup_script() {
     log_info "Creating backup script..."
     
     mkdir -p ./scripts
-    
-    cat > ./scripts/backup.sh << 'EOF'
+
+    local env_prefix
+    env_prefix="$(port_env_prefix)"
+
+    cat > ./scripts/backup.sh << EOF
 #!/bin/bash
-# ${NAME_OF_APPLICATION} Backup Script
+# ${NAME_OF_APPLICATION} Backup Script (PostgreSQL)
 
 BACKUP_DIR="backups"
-DATE=$(date +%Y%m%d_%H%M%S)
-BACKUP_FILE="$BACKUP_DIR/ai_haccp_backup_$DATE"
+DATE=\$(date +%Y%m%d_%H%M%S)
+BACKUP_FILE="\$BACKUP_DIR/${NAME_OF_APPLICATION}_backup_\$DATE.sql.gz"
 
-mkdir -p "$BACKUP_DIR"
+mkdir -p "\$BACKUP_DIR"
 
-echo "Creating backup: $BACKUP_FILE"
-HTTP_PORT=$HTTP_PORT HTTPS_PORT=$HTTPS_PORT HTTP_PORT2=$HTTP_PORT2 HTTPS_PORT2=$HTTPS_PORT2 USER_ID=$USER_ID docker compose -p "${NAME_OF_APPLICATION}-${USER_ID}-${HTTPS_PORT}" -f docker-compose.yml exec -T api cp /app/data/ai_haccp.db /tmp/backup.db
-docker cp $(docker compose -p "-$USER_ID-$HTTPS_PORT" -f docker-compose.yml ps -q api):/tmp/backup.db "$BACKUP_FILE.db"
+# Resolve the PostgreSQL container for this project
+DB_CONTAINER=\$(env $env_prefix docker-compose -p "${NAME_OF_APPLICATION}-${USER_ID}-${HTTPS_PORT}" -f docker-compose.yml ps -q postgres 2>/dev/null || env $env_prefix docker-compose -p "${NAME_OF_APPLICATION}-${USER_ID}-${HTTPS_PORT}" -f docker-compose.yml ps -q db 2>/dev/null)
 
-if [[ $? -eq 0 ]]; then
-    echo "Backup created successfully: $BACKUP_FILE"
-    
+# Resolve credentials (fall back to .env.prod when available)
+DB_NAME="\${POSTGRES_DB:-${NAME_OF_APPLICATION}}"
+DB_USER="\${POSTGRES_USER:-${NAME_OF_APPLICATION}}"
+if [[ -f .env.prod ]]; then
+    source .env.prod 2>/dev/null || true
+    DB_NAME="\${POSTGRES_DB:-\$DB_NAME}"
+    DB_USER="\${POSTGRES_USER:-\$DB_USER}"
+fi
+
+echo "Creating backup: \$BACKUP_FILE"
+docker exec "\$DB_CONTAINER" pg_dump -U "\$DB_USER" "\$DB_NAME" | gzip > "\$BACKUP_FILE"
+
+if [[ \$? -eq 0 && -s "\$BACKUP_FILE" ]]; then
+    echo "Backup created successfully: \$BACKUP_FILE"
+
     # Keep only last 7 backups
-    ls -t "$BACKUP_DIR"/ai_haccp_backup_*.db | tail -n +8 | xargs -r rm
+    ls -t "\$BACKUP_DIR"/${NAME_OF_APPLICATION}_backup_*.sql.gz | tail -n +8 | xargs -r rm
     echo "Old backups cleaned up"
 else
     echo "Backup failed!"
@@ -448,12 +497,6 @@ show_usage() {
 
 # Check service status
 check_status() {
-    # Get actual ports
-    actual_http_port="$HTTP_PORT"
-    actual_https_port="$HTTPS_PORT"
-    actual_http_port2="$HTTP_PORT2"
-    actual_https_port2="$HTTPS_PORT2"
-
     # Check docker status using docker container ls
     docker_status="IS_NOT_RUNNING"
     docker_ports="[]"
@@ -469,28 +512,26 @@ check_status() {
     
     # Get git remote URLs
     git_remotes=$(git remote -v 2>/dev/null | awk '{print $2}' | sort -u | jq -R . | jq -s . 2>/dev/null || echo '[]')
-    
+
+    # Build the environment_vars object from the port set (single source of truth)
+    local env_vars
+    env_vars=$(jq -n \
+        --arg USER_ID "$USER_ID" \
+        --arg USER_NAME "$USER_NAME" \
+        --arg USER_EMAIL "$USER_EMAIL" \
+        '{USER_ID: $USER_ID, USER_NAME: $USER_NAME, USER_EMAIL: $USER_EMAIL}')
+    local name
+    for name in "${PORT_NAMES[@]}"; do
+        env_vars=$(echo "$env_vars" | jq --arg k "$name" --arg v "${!name}" '. + {($k): $v}')
+    done
+
     # Output JSON
-    jq -n --arg user_id "$USER_ID" \
-          --arg user_name "$USER_NAME" \
-          --arg user_email "$USER_EMAIL" \
-          --arg http_port "$actual_http_port" \
-          --arg https_port "$actual_https_port" \
-          --arg http_port2 "$actual_http_port2" \
-          --arg https_port2 "$actual_https_port2" \
+    jq -n --argjson environment_vars "$env_vars" \
           --arg docker_status "$docker_status" \
           --argjson docker_ports "$docker_ports" \
           --argjson git_remotes "$git_remotes" \
           '{
-            "environment_vars": {
-              "USER_ID": $user_id,
-              "USER_NAME": $user_name,
-              "USER_EMAIL": $user_email,
-              "HTTP_PORT": $http_port,
-              "HTTPS_PORT": $https_port,
-              "HTTP_PORT2": $http_port2,
-              "HTTPS_PORT2": $https_port2
-            },
+            "environment_vars": $environment_vars,
             "docker_compose_ps": $docker_status,
             "docker_ports": $docker_ports,
             "git_remote": $git_remotes
