@@ -25,6 +25,6 @@ COPY --from=builder /worker /worker
 # Run as non-root (nobody:nobody)
 USER 65534:65534
 
-EXPOSE 8080
+EXPOSE 5000
 
 ENTRYPOINT ["/worker"]
